@@ -18,9 +18,23 @@
   #sug .d{display:block;font-weight:400;font-size:13px;color:#4a5568;margin-top:2px}
   #sug button{display:block;width:100%;text-align:left;background:none;color:var(--ink);border-radius:0;padding:12px;font-weight:600;border-bottom:1px solid #e3e7ef}
   #reload{background:#fff;color:var(--ink);padding:5px 12px;font-size:16px;border-radius:20px}
+  [hidden]{display:none!important}
+  .field{flex:1 1 28%;min-width:0;background:#fff;color:var(--ink);text-align:left;padding:6px 12px;border-radius:10px;font-weight:400;display:block}
+  .field small{display:block;font-size:11px;color:#5b6577;font-weight:600}
+  .field b{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #sheet{position:fixed;inset:0;z-index:20;background:#f4f5f7;color:var(--ink);display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+  #sHead{display:flex;align-items:center;gap:8px;padding:10px;background:var(--denim);color:#fff}
+  #sTitle{flex:1;font-weight:800;font-size:18px}
+  #sHead button{background:rgba(255,255,255,.18);color:#fff;padding:8px 14px;font-size:18px}
+  #sCrumb{padding:8px 14px;font-size:14px;font-weight:600;color:#33415c}
+  #sQ{margin:0 10px 8px;font:inherit;font-size:16px;padding:12px;border:2px solid #cfd6e2;border-radius:10px;width:calc(100% - 20px)}
+  #sList{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;min-height:58px;text-align:left;background:#fff;color:var(--ink);border-radius:0;border-bottom:1px solid #e3e7ef;padding:14px;font-size:18px;font-weight:600}
+  .row small{font-weight:400;font-size:13px;color:#5b6577;white-space:nowrap}
+  .row.on{background:#fff3cd}.row .t{word-break:break-all}
   .pill{background:var(--amber);color:var(--ink);font-weight:800;border-radius:20px;padding:5px 12px;font-size:14px;white-space:nowrap}
   #pend{background:#fff}
-  #err{position:absolute;top:118px;left:10px;right:10px;z-index:4;background:var(--err);border-radius:10px;padding:8px 12px;font-size:14px;font-weight:600;display:none}
+  #err{position:absolute;top:128px;left:10px;right:10px;z-index:4;background:var(--err);border-radius:10px;padding:8px 12px;font-size:14px;font-weight:600;display:none}
   #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
   #guide{position:absolute;left:5%;right:5%;top:26%;height:34%;border:3px solid var(--amber);border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.35);pointer-events:none;transition:border-color .15s}
   #guide.ok{border-color:var(--ok)}#guide.bad{border-color:var(--err)}
@@ -43,8 +57,9 @@
 </head>
 <body>
 <div id="top">
-  <div id="pick"><input id="giao" type="search" placeholder="Tìm giao hàng / đơn hàng" autocomplete="off" aria-label="Tìm đợt giao hàng hoặc tên đơn hàng"><div id="sug"></div></div>
-  <select id="don" disabled aria-label="Đơn hàng"><option value="">Đơn hàng</option></select>
+  <button id="fMua" class="field" aria-label="Chọn mùa sản xuất"><small>Mùa SX</small><b id="vMua">—</b></button>
+  <button id="fOrder" class="field" aria-label="Chọn đơn hàng"><small>Đơn hàng</small><b id="vOrder">—</b></button>
+  <button id="fGiao" class="field" aria-label="Chọn đợt giao hàng"><small>Giao hàng</small><b id="vGiao">—</b></button>
   <button id="reload" aria-label="Làm mới danh sách đơn hàng">↻</button><span class="pill" id="cnt">Quét 0</span><span class="pill" id="pend">Chờ 0</span>
 </div>
 <div id="err" role="alert"></div>
@@ -55,12 +70,18 @@
   <div><div id="first">Đang khởi động…</div><div id="txt"></div><div id="meta"></div></div>
   <div id="row"><button id="auto" class="on">Tự quét: Bật</button><button id="shot">QUÉT</button><button id="undo">Hủy</button></div>
 </div>
+<div id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sTitle">
+  <div id="sHead"><button id="sBack" aria-label="Quay lại chọn đơn hàng">←</button><div id="sTitle">Chọn đơn hàng</div><button id="sClose" aria-label="Đóng">✕</button></div>
+  <div id="sCrumb"></div>
+  <input id="sQ" type="search" placeholder="Tìm tên đơn hàng" autocomplete="off">
+  <div id="sList"></div>
+</div>
 <input id="file" type="file" accept="image/*" capture="environment" hidden>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script>
 // ===== CẤU HÌNH =====
-const API_URL = 'https://script.google.com/macros/s/AKfycby1Eel_lghvqv1TGPCKBS8zcY37emEdnp4rVGeUsFKm7cFTrU5bFhUrycBLK80P67_l/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwcNVPnndyOlxEKOwqtfmtyoRgpXWfGI5ldTm2QC26BeFM5bBZOiOUwLcYqGq_zG0EU/exec';
 const KEY = '12345678';   // phải giống KEY trong Code.gs
 const MODE = 'hybrid';             // 'hybrid' | 'local' | 'server' (server = chỉ quét tay)
 const LANG = 'vie';
@@ -73,7 +94,7 @@ const $ = id => document.getElementById(id), sleep = ms => new Promise(r => setT
 let worker = null, localOK = false, auto = true, low = 0, lastText = '', lastT = 0;
 let lastAutoT = 0, coolTxt = '';
 let jobs = [], queue = [], scanned = 0, sending = false, stream = null, audio = null;
-let orders = [], giaoList = [], cur = { giao: '', don: '' };
+let orders = [], cur = { mua: '', don: '', giao: '' };
 try { queue = JSON.parse(localStorage.getItem('q') || '[]'); } catch (e) {}
 
 const api = (action, p) => fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -98,58 +119,83 @@ function beep(ok){ try { if (ok) { tone(880, 0, .07); tone(1320, .08, .09); } el
 const tidy = t => String(t).replace(/\r/g, '').split('\n').map(l => l.replace(/\s+$/, '')).join('\n').replace(/^\n+|\n+$/g, '');
 const norm = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-// ===== 1) Tìm Giao hàng -> chọn Đơn hàng =====
-let ordersT = 0;
+// ===== 1) Lướt chọn Mùa SX -> Đơn hàng -> Giao hàng =====
+let ordersT = 0, byMua = new Map(), lvl = 1, sp = { mua: '', don: '' };
+const MAX_ROWS = 300, NOMUA = '(không có mùa)';
+const updateFields = () => { $('vMua').textContent = cur.don ? (cur.mua || NOMUA) : '—'; $('vOrder').textContent = cur.don || '—'; $('vGiao').textContent = cur.giao || '—'; };
+const validSel = c => !!(c && c.don && c.giao && byMua.has(c.mua) && byMua.get(c.mua).has(c.don) && byMua.get(c.mua).get(c.don).indexOf(c.giao) >= 0);
 function loadOrders(fresh, first){
   return api('orders', { fresh: !!fresh }).then(j => {
-    orders = j.orders; giaoList = Array.from(new Set(orders.map(o => o.giao))); ordersT = Date.now();
+    orders = j.orders; byMua = new Map(); ordersT = Date.now();
+    orders.forEach(o => {
+      if (!byMua.has(o.mua)) byMua.set(o.mua, new Map());
+      const m = byMua.get(o.mua); if (!m.has(o.don)) m.set(o.don, []);
+      const a = m.get(o.don); if (a.indexOf(o.giao) < 0) a.push(o.giao);
+    });
     let want = cur;
     if (first) { try { want = JSON.parse(localStorage.getItem('cur') || 'null') || cur; } catch (e) {} }
-    if (want.giao && giaoList.indexOf(want.giao) >= 0) { cur.giao = want.giao; $('giao').value = want.giao; fillDon(want.giao, want.don); }
-    else if (!first && cur.giao) { cur = { giao: '', don: '' }; $('giao').value = ''; fillDon(''); }
-    if (!cur.giao) $('first').textContent = 'Tìm và chọn giao hàng / đơn hàng';
-    $('meta').textContent = 'Đã cập nhật ' + giaoList.length + ' giao hàng · ' + orders.length + ' đơn';
+    if (validSel(want)) cur = { mua: want.mua, don: want.don, giao: want.giao };
+    else if (cur.don || cur.giao) { cur = { mua: '', don: '', giao: '' }; saveCur(); }
+    updateFields();
+    let nd = 0; byMua.forEach(m => nd += m.size);
+    $('meta').textContent = 'Đã cập nhật ' + byMua.size + ' mùa · ' + nd + ' đơn · ' + orders.length + ' đợt giao';
+    if (!cur.don) $('first').textContent = 'Chọn mùa SX, đơn hàng, giao hàng';
+    if (!$('sheet').hidden) drawSheet(); else if (first && !cur.don) openSheet(1);
   }).catch(e => showErr('Không nối được Google Sheet: ' + e.message));
 }
-loadOrders(false, true);
-$('reload').onclick = () => { $('meta').textContent = 'Đang cập nhật danh sách…'; loadOrders(true); };
-// Tự cập nhật khi mở lại app sau khi để nền hơn 1 phút
-document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - ordersT > 60000) loadOrders(true); });
-// Tìm theo đợt Giao hàng HOẶC tên Đơn hàng; nhiều từ cách nhau bằng dấu cách (tất cả phải khớp)
-const MAX_SUG = 50;
-function renderSug(q){
-  const n = norm(q).trim(), terms = n.split(/\s+/).filter(Boolean), sug = $('sug'); sug.innerHTML = '';
-  const m = orders.filter(o => { const h = norm(o.giao + ' ' + o.don); return terms.every(t => h.indexOf(t) >= 0); });
-  const rank = o => (n && (norm(o.giao).indexOf(n) === 0 || norm(o.don).indexOf(n) === 0)) ? 0 : 1;
-  m.sort((a, b) => rank(a) - rank(b));
-  m.slice(0, MAX_SUG).forEach(o => {
-    const b = document.createElement('button'), g = document.createElement('span'), d = document.createElement('span');
-    g.textContent = o.giao; d.textContent = o.don; d.className = 'd';
-    b.appendChild(g); b.appendChild(d); b.dataset.g = o.giao; b.dataset.d = o.don;
-    b.onpointerdown = ev => { ev.preventDefault(); pickPair(o.giao, o.don); };
-    sug.appendChild(b);
+function openSheet(level){
+  sp = { mua: cur.mua, don: cur.don };
+  let l = level;
+  if (l > 1 && !(cur.don && byMua.has(cur.mua) && byMua.get(cur.mua).has(cur.don))) l = 1;
+  if (l === 1 && byMua.size === 1) { sp.mua = byMua.keys().next().value; l = 2; }   // chỉ có 1 mùa: bỏ qua bước chọn mùa
+  lvl = l; $('sQ').value = ''; $('sheet').hidden = false; drawSheet();
+}
+function levelItems(){
+  if (lvl === 1) return Array.from(byMua.keys()).map(m => ({ main: m || NOMUA, val: m, sub: byMua.get(m).size + ' đơn', on: m === cur.mua && !!cur.don }));
+  const dm = byMua.get(sp.mua) || new Map();
+  if (lvl === 2) return Array.from(dm.keys()).map(d => ({ main: d, val: d, sub: dm.get(d).length + ' đợt giao', on: sp.mua === cur.mua && d === cur.don }));
+  return (dm.get(sp.don) || []).map(g => ({ main: g, val: g, sub: '', on: sp.mua === cur.mua && sp.don === cur.don && g === cur.giao }));
+}
+function drawSheet(){
+  const list = $('sList'); list.innerHTML = '';
+  $('sTitle').textContent = ['', 'Chọn mùa SX', 'Chọn đơn hàng', 'Chọn đợt giao hàng'][lvl];
+  $('sBack').hidden = lvl === 1 || (lvl === 2 && byMua.size === 1);
+  $('sCrumb').textContent = lvl === 1 ? 'Vuốt để chọn mùa sản xuất' : lvl === 2 ? 'Mùa SX: ' + (sp.mua || NOMUA) : 'Mùa SX: ' + (sp.mua || NOMUA) + '  ›  Đơn hàng: ' + sp.don;
+  const items = levelItems();
+  $('sQ').hidden = items.length <= 8;
+  $('sQ').placeholder = ['', 'Tìm mùa SX', 'Tìm tên đơn hàng', 'Tìm đợt giao hàng'][lvl];
+  const terms = norm($('sQ').value).split(/\s+/).filter(Boolean);
+  const m = items.filter(it => terms.every(t => norm(it.main).indexOf(t) >= 0));
+  m.slice(0, MAX_ROWS).forEach(it => {
+    const b = document.createElement('button'), t = document.createElement('span');
+    b.className = 'row' + (it.on ? ' on' : ''); t.className = 't'; t.textContent = (it.on ? '✓ ' : '') + it.main; b.appendChild(t);
+    if (it.sub) { const sm = document.createElement('small'); sm.textContent = it.sub; b.appendChild(sm); }
+    b.onclick = () => pick(it.val); list.appendChild(b);
   });
-  const note = text => { const d = document.createElement('div'); d.style.cssText = 'padding:10px 12px;color:#555;font-size:13px'; d.textContent = text; sug.appendChild(d); };
-  if (m.length > MAX_SUG) note('Còn ' + (m.length - MAX_SUG) + ' kết quả nữa, gõ thêm để lọc.');
-  if (!m.length && orders.length) note('Không thấy? Kiểm tra lại từ khóa hoặc bấm ↻ để cập nhật danh sách.');
-  sug.style.display = sug.children.length ? 'block' : 'none';
+  const note = x => { const d = document.createElement('div'); d.style.cssText = 'padding:12px 14px;color:#555;font-size:14px'; d.textContent = x; list.appendChild(d); };
+  if (m.length > MAX_ROWS) note('Còn ' + (m.length - MAX_ROWS) + ' mục nữa, gõ thêm để lọc.');
+  if (!m.length) note(byMua.size ? 'Không thấy? Kiểm tra từ khóa hoặc đóng rồi bấm ↻ để cập nhật danh sách.' : 'Danh sách đang trống.');
+  const on = list.querySelector('.on'); if (on && !$('sQ').value) on.scrollIntoView({ block: 'center' });
 }
-function pickPair(g, d){ cur.giao = g; $('giao').value = g; $('sug').style.display = 'none'; $('giao').blur(); fillDon(g, d); }
-function fillDon(g, keep){
-  const s = $('don'), list = orders.filter(o => o.giao === g); s.innerHTML = ''; cur.don = '';
-  if (!g || !list.length) { s.disabled = true; s.innerHTML = '<option value="">Đơn hàng</option>'; saveCur(); return; }
-  s.disabled = false;
-  if (list.length > 1) s.innerHTML = '<option value="">— Chọn đơn hàng —</option>';
-  list.forEach(o => { const p = document.createElement('option'); p.value = o.don; p.textContent = o.don; s.appendChild(p); });
-  cur.don = (keep && list.some(o => o.don === keep)) ? keep : (list.length === 1 ? list[0].don : '');
-  s.value = cur.don; saveCur();
+function goLevel(l){ lvl = l; $('sQ').value = ''; drawSheet(); $('sList').scrollTop = 0; }
+function afterDon(){ const gl = byMua.get(sp.mua).get(sp.don); if (gl.length === 1) return choose(sp.mua, sp.don, gl[0]); goLevel(3); }
+function pick(v){
+  if (lvl === 1) { sp.mua = v; const dm = byMua.get(v); if (dm.size === 1) { sp.don = dm.keys().next().value; return afterDon(); } goLevel(2); }
+  else if (lvl === 2) { sp.don = v; afterDon(); }
+  else choose(sp.mua, sp.don, v);
 }
+function choose(m, d, g){ cur = { mua: m, don: d, giao: g }; $('sheet').hidden = true; updateFields(); saveCur(); $('first').textContent = 'Đưa tem vào khung'; }
 function saveCur(){ try { localStorage.setItem('cur', JSON.stringify(cur)); } catch (e) {} lastText = ''; holdSig = null; }
-$('giao').oninput = e => { cur.giao = ''; fillDon(''); renderSug(e.target.value); };
-$('giao').onfocus = e => { e.target.select(); renderSug(e.target.value); };
-$('giao').onkeydown = e => { if (e.key === 'Enter') { const b = $('sug').querySelector('button'); if (b) pickPair(b.dataset.g, b.dataset.d); } };
-$('don').onchange = () => { cur.don = $('don').value; saveCur(); };
+$('fMua').onclick = () => openSheet(1);
+$('fOrder').onclick = () => openSheet(2);
+$('fGiao').onclick = () => openSheet(3);
+$('sQ').oninput = drawSheet;
+$('sBack').onclick = () => goLevel(lvl - 1);
+$('sClose').onclick = () => { $('sheet').hidden = true; };
+$('reload').onclick = () => { $('meta').textContent = 'Đang cập nhật danh sách…'; loadOrders(true); };
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - ordersT > 60000) loadOrders(true); });
 const ready_ = () => !!(cur.giao && cur.don);
+loadOrders(false, true);
 
 // ===== 2) Camera mở ngay =====
 async function startCam(){
@@ -171,7 +217,7 @@ async function startOcr(){
     } catch (e) { showErr('Không nạp được bộ đọc trên máy, dùng OCR Google (chậm hơn).'); }
   }
   if (!localOK) { auto = false; $('auto').style.display = 'none'; }
-  $('first').textContent = ready_() ? 'Đưa tem vào khung' : 'Tìm và chọn giao hàng / đơn hàng';
+  $('first').textContent = ready_() ? 'Đưa tem vào khung' : 'Chọn mùa SX, đơn hàng, giao hàng';
 }
 const CROP = { x: .05, y: .26, w: .9, h: .34 };   // khớp khung vàng
 function grab(src){
@@ -243,8 +289,8 @@ const serverOcr = cv => api('ocr', { image: cv.toDataURL('image/jpeg', .85).spli
 
 // ===== 4) Quét =====
 function tap(){
-  if ($('sug').style.display === 'block') { $('sug').style.display = 'none'; return; }
-  if (!ready_()) { $('first').textContent = 'Chọn Giao hàng và Đơn hàng trước'; return; }
+  if (!$('sheet').hidden) return;
+  if (!ready_()) { $('first').textContent = 'Chọn mùa SX, đơn hàng, giao hàng trước'; return; }
   if (!stream) return $('file').click();
   const cv = grab(); if (!cv) return;
   jobs.push({ cv: cv, g: cur.giao, d: cur.don }); ui(); flash('ok');
@@ -279,7 +325,7 @@ async function scan(manual, job){
     if (conf < LOW_CONF) item.image = cv.toDataURL('image/jpeg', .6).split(',')[1];
     queue.push(item); persist(); scanned++; ui(); flash('ok'); beep(true); plus();
     $('first').textContent = first; $('txt').textContent = text.split('\n').slice(1).join('\n');
-    $('meta').textContent = job.g + ' · ' + job.d + ' · ' + via + ' ' + Math.round(performance.now() - t0) + ' ms';
+    $('meta').textContent = job.d + ' · ' + job.g + ' · ' + via + ' ' + Math.round(performance.now() - t0) + ' ms';
     if (queue.length >= FLUSH_N) flush();
     return true;
   } catch (e) { $('first').textContent = 'Lỗi đọc, quét lại'; showErr(String(e.message || e)); return false; }
@@ -294,7 +340,7 @@ let prevSig = null, holdSig = null, stableN = 0, fails = 0;
 async function loop(){
   while (true) {
     if (jobs.length) { await scan(true, jobs.shift()); ui(); }
-    else if (auto && stream && localOK && ready_()) {
+    else if (auto && stream && localOK && ready_() && $('sheet').hidden) {
       const s = probe();
       if (s) {
         stableN = (prevSig && sigDiff(s, prevSig) < STABLE_DIFF) ? stableN + 1 : 0; prevSig = s;
