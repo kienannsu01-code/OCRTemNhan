@@ -15,6 +15,7 @@
   #giao,#don{width:100%;font:inherit;font-size:16px;padding:10px;border-radius:10px;border:0;background:#fff;color:var(--ink)}
   #don{flex:1 1 42%;min-width:0}
   #sug{position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:42vh;overflow:auto;background:#fff;color:var(--ink);border-radius:10px;display:none;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  #sug .d{display:block;font-weight:400;font-size:13px;color:#4a5568;margin-top:2px}
   #sug button{display:block;width:100%;text-align:left;background:none;color:var(--ink);border-radius:0;padding:12px;font-weight:600;border-bottom:1px solid #e3e7ef}
   #reload{background:#fff;color:var(--ink);padding:5px 12px;font-size:16px;border-radius:20px}
   .pill{background:var(--amber);color:var(--ink);font-weight:800;border-radius:20px;padding:5px 12px;font-size:14px;white-space:nowrap}
@@ -42,7 +43,7 @@
 </head>
 <body>
 <div id="top">
-  <div id="pick"><input id="giao" type="search" placeholder="Tìm Giao hàng" autocomplete="off" aria-label="Tìm Giao hàng"><div id="sug"></div></div>
+  <div id="pick"><input id="giao" type="search" placeholder="Tìm giao hàng / đơn hàng" autocomplete="off" aria-label="Tìm đợt giao hàng hoặc tên đơn hàng"><div id="sug"></div></div>
   <select id="don" disabled aria-label="Đơn hàng"><option value="">Đơn hàng</option></select>
   <button id="reload" aria-label="Làm mới danh sách đơn hàng">↻</button><span class="pill" id="cnt">Quét 0</span><span class="pill" id="pend">Chờ 0</span>
 </div>
@@ -59,16 +60,18 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script>
 // ===== CẤU HÌNH =====
-const API_URL = 'https://script.google.com/macros/s/AKfycbzEql7vmDk6AWDsp4DUPR6Na1UURsmCIMCwgeX4wEYF-RPypjB17hgAMVp-kp3VsZXu/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycby1Eel_lghvqv1TGPCKBS8zcY37emEdnp4rVGeUsFKm7cFTrU5bFhUrycBLK80P67_l/exec';
 const KEY = '12345678';   // phải giống KEY trong Code.gs
 const MODE = 'hybrid';             // 'hybrid' | 'local' | 'server' (server = chỉ quét tay)
 const LANG = 'vie';
 const MIN_CONF = 55, LOW_CONF = 75, FLUSH_MS = 4000, FLUSH_N = 40, MAX_W = 1600;
 // Tự quét: tem đứng yên ~0,15s là đọc ngay; chỉ đọc lại khi hình trong khung thay đổi
+const AUTO_COOLDOWN_MS = 5000;   // tự quét: tối đa 1 tem / 5 giây (đặt 0 để tắt giới hạn)
 const POLL_MS = 60, STABLE_DIFF = 5, STABLE_FRAMES = 2, CHANGE_DIFF = 18, DUP_MS = 1500;
 // =====================
 const $ = id => document.getElementById(id), sleep = ms => new Promise(r => setTimeout(r, ms));
 let worker = null, localOK = false, auto = true, low = 0, lastText = '', lastT = 0;
+let lastAutoT = 0, coolTxt = '';
 let jobs = [], queue = [], scanned = 0, sending = false, stream = null, audio = null;
 let orders = [], giaoList = [], cur = { giao: '', don: '' };
 try { queue = JSON.parse(localStorage.getItem('q') || '[]'); } catch (e) {}
@@ -104,7 +107,7 @@ function loadOrders(fresh, first){
     if (first) { try { want = JSON.parse(localStorage.getItem('cur') || 'null') || cur; } catch (e) {} }
     if (want.giao && giaoList.indexOf(want.giao) >= 0) { cur.giao = want.giao; $('giao').value = want.giao; fillDon(want.giao, want.don); }
     else if (!first && cur.giao) { cur = { giao: '', don: '' }; $('giao').value = ''; fillDon(''); }
-    if (!cur.giao) $('first').textContent = 'Tìm và chọn Giao hàng';
+    if (!cur.giao) $('first').textContent = 'Tìm và chọn giao hàng / đơn hàng';
     $('meta').textContent = 'Đã cập nhật ' + giaoList.length + ' giao hàng · ' + orders.length + ' đơn';
   }).catch(e => showErr('Không nối được Google Sheet: ' + e.message));
 }
@@ -112,17 +115,26 @@ loadOrders(false, true);
 $('reload').onclick = () => { $('meta').textContent = 'Đang cập nhật danh sách…'; loadOrders(true); };
 // Tự cập nhật khi mở lại app sau khi để nền hơn 1 phút
 document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - ordersT > 60000) loadOrders(true); });
+// Tìm theo đợt Giao hàng HOẶC tên Đơn hàng; nhiều từ cách nhau bằng dấu cách (tất cả phải khớp)
+const MAX_SUG = 50;
 function renderSug(q){
-  const n = norm(q), sug = $('sug'); sug.innerHTML = '';
-  giaoList.filter(g => norm(g).indexOf(n) >= 0).slice(0, 30).forEach(g => {
-    const b = document.createElement('button'); b.textContent = g;
-    b.onpointerdown = ev => { ev.preventDefault(); pickGiao(g); };
+  const n = norm(q).trim(), terms = n.split(/\s+/).filter(Boolean), sug = $('sug'); sug.innerHTML = '';
+  const m = orders.filter(o => { const h = norm(o.giao + ' ' + o.don); return terms.every(t => h.indexOf(t) >= 0); });
+  const rank = o => (n && (norm(o.giao).indexOf(n) === 0 || norm(o.don).indexOf(n) === 0)) ? 0 : 1;
+  m.sort((a, b) => rank(a) - rank(b));
+  m.slice(0, MAX_SUG).forEach(o => {
+    const b = document.createElement('button'), g = document.createElement('span'), d = document.createElement('span');
+    g.textContent = o.giao; d.textContent = o.don; d.className = 'd';
+    b.appendChild(g); b.appendChild(d); b.dataset.g = o.giao; b.dataset.d = o.don;
+    b.onpointerdown = ev => { ev.preventDefault(); pickPair(o.giao, o.don); };
     sug.appendChild(b);
   });
-  if (!sug.children.length && giaoList.length) { const d = document.createElement('div'); d.style.cssText = 'padding:12px;color:#555;font-size:14px'; d.textContent = 'Không thấy? Bấm ↻ để cập nhật danh sách.'; sug.appendChild(d); }
+  const note = text => { const d = document.createElement('div'); d.style.cssText = 'padding:10px 12px;color:#555;font-size:13px'; d.textContent = text; sug.appendChild(d); };
+  if (m.length > MAX_SUG) note('Còn ' + (m.length - MAX_SUG) + ' kết quả nữa, gõ thêm để lọc.');
+  if (!m.length && orders.length) note('Không thấy? Kiểm tra lại từ khóa hoặc bấm ↻ để cập nhật danh sách.');
   sug.style.display = sug.children.length ? 'block' : 'none';
 }
-function pickGiao(g){ cur.giao = g; $('giao').value = g; $('sug').style.display = 'none'; $('giao').blur(); fillDon(g); }
+function pickPair(g, d){ cur.giao = g; $('giao').value = g; $('sug').style.display = 'none'; $('giao').blur(); fillDon(g, d); }
 function fillDon(g, keep){
   const s = $('don'), list = orders.filter(o => o.giao === g); s.innerHTML = ''; cur.don = '';
   if (!g || !list.length) { s.disabled = true; s.innerHTML = '<option value="">Đơn hàng</option>'; saveCur(); return; }
@@ -135,7 +147,7 @@ function fillDon(g, keep){
 function saveCur(){ try { localStorage.setItem('cur', JSON.stringify(cur)); } catch (e) {} lastText = ''; holdSig = null; }
 $('giao').oninput = e => { cur.giao = ''; fillDon(''); renderSug(e.target.value); };
 $('giao').onfocus = e => { e.target.select(); renderSug(e.target.value); };
-$('giao').onkeydown = e => { if (e.key === 'Enter') { const b = $('sug').firstChild; if (b) pickGiao(b.textContent); } };
+$('giao').onkeydown = e => { if (e.key === 'Enter') { const b = $('sug').querySelector('button'); if (b) pickPair(b.dataset.g, b.dataset.d); } };
 $('don').onchange = () => { cur.don = $('don').value; saveCur(); };
 const ready_ = () => !!(cur.giao && cur.don);
 
@@ -159,7 +171,7 @@ async function startOcr(){
     } catch (e) { showErr('Không nạp được bộ đọc trên máy, dùng OCR Google (chậm hơn).'); }
   }
   if (!localOK) { auto = false; $('auto').style.display = 'none'; }
-  $('first').textContent = ready_() ? 'Đưa tem vào khung' : 'Tìm và chọn Giao hàng';
+  $('first').textContent = ready_() ? 'Đưa tem vào khung' : 'Tìm và chọn giao hàng / đơn hàng';
 }
 const CROP = { x: .05, y: .26, w: .9, h: .34 };   // khớp khung vàng
 function grab(src){
@@ -185,11 +197,32 @@ function probe(){
 const sigDiff = (a, b) => { let t = 0, n = 0; for (let i = 0; i < a.length; i += 3, n++) t += Math.abs(a[i] - b[i]); return t / n; };
 
 // Đọc cả tem (nhanh). Dòng đầu sẽ được đọc lại kỹ chỉ khi tem đã được chấp nhận.
+// Dựng dòng theo TỌA ĐỘ từng từ (cùng hàng ngang = cùng dòng), không dùng cách chia dòng tự động của OCR
+function linesFromWords(data){
+  let words = data.words;
+  if (!words && data.blocks) { words = []; try { data.blocks.forEach(b => b.paragraphs.forEach(p => p.lines.forEach(l => l.words.forEach(w => words.push(w))))); } catch (e) {} }
+  words = (words || []).filter(w => w.text && w.text.trim() && w.bbox);
+  if (!words.length) return null;
+  const hs = words.map(w => w.bbox.y1 - w.bbox.y0).sort((a, b) => a - b), mh = hs[hs.length >> 1] || 10;
+  const items = words.map(w => ({ w: w, cy: (w.bbox.y0 + w.bbox.y1) / 2 })).sort((a, b) => a.cy - b.cy), rows = [];
+  items.forEach(it => {
+    const r = rows[rows.length - 1];
+    if (r && Math.abs(it.cy - r.cy) <= mh * 0.6) { r.items.push(it); r.cy = r.items.reduce((t, x) => t + x.cy, 0) / r.items.length; }
+    else rows.push({ cy: it.cy, items: [it] });
+  });
+  rows.forEach(r => r.items.sort((a, b) => a.w.bbox.x0 - b.w.bbox.x0));
+  return rows;
+}
 async function readLocal(cv){
   const { data } = await worker.recognize(cv, {}, { text: true, blocks: true });
-  let L = data.lines && data.lines[0];
-  if (!L && data.blocks) { try { L = data.blocks[0].paragraphs[0].lines[0]; } catch (e) {} }
-  return { text: tidy(data.text), conf: Math.round(data.confidence), L: L };
+  const rows = linesFromWords(data);
+  if (!rows) return { text: tidy(data.text), conf: Math.round(data.confidence), L: null };
+  const text = rows.map(r => r.items.map(i => i.w.text.trim()).join(' ')).join('\n');
+  const f = rows[0].items.map(i => i.w);
+  const L = { bbox: { x0: Math.min.apply(null, f.map(w => w.bbox.x0)), y0: Math.min.apply(null, f.map(w => w.bbox.y0)),
+                      x1: Math.max.apply(null, f.map(w => w.bbox.x1)), y1: Math.max.apply(null, f.map(w => w.bbox.y1)) },
+              confidence: f.reduce((t, w) => t + (w.confidence || 0), 0) / f.length };
+  return { text: tidy(text), conf: Math.round(data.confidence), L: L };
 }
 async function refineFirst(cv, res){
   const L = res.L; if (!L || !L.bbox) return;
@@ -241,7 +274,7 @@ async function scan(manual, job){
     }
     const now = Date.now();
     if (!manual && text === lastText && now - lastT < DUP_MS) return false;   // chống đọc lặp do rung tay
-    lastText = text; lastT = now; low = 0;
+    lastText = text; lastT = now; low = 0; if (!manual) lastAutoT = now;
     const item = { t: now, giao: job.g, don: job.d, text: text };
     if (conf < LOW_CONF) item.image = cv.toDataURL('image/jpeg', .6).split(',')[1];
     queue.push(item); persist(); scanned++; ui(); flash('ok'); beep(true); plus();
@@ -253,6 +286,10 @@ async function scan(manual, job){
 }
 
 // Vòng lặp tự quét: tem đứng yên -> đọc 1 lần -> chờ hình đổi (rút tem / đổi tem) mới đọc tiếp
+function coolLabel(wait){
+  const t = wait > 0 ? 'Tự quét · ' + Math.ceil(wait / 1000) + 's' : 'Tự quét: Bật';
+  if (t !== coolTxt) { coolTxt = t; $('auto').textContent = t; }
+}
 let prevSig = null, holdSig = null, stableN = 0, fails = 0;
 async function loop(){
   while (true) {
@@ -262,7 +299,9 @@ async function loop(){
       if (s) {
         stableN = (prevSig && sigDiff(s, prevSig) < STABLE_DIFF) ? stableN + 1 : 0; prevSig = s;
         if (holdSig && sigDiff(s, holdSig) > CHANGE_DIFF) { holdSig = null; fails = 0; }
-        if (stableN >= STABLE_FRAMES && !holdSig) {
+        const wait = AUTO_COOLDOWN_MS - (Date.now() - lastAutoT);
+        coolLabel(wait);
+        if (stableN >= STABLE_FRAMES && !holdSig && wait <= 0) {
           const cv = grab();
           if (cv) {
             const ok = await scan(false, { cv: cv, g: cur.giao, d: cur.don });
@@ -274,7 +313,7 @@ async function loop(){
     await sleep(POLL_MS);
   }
 }
-$('auto').onclick = () => { auto = !auto; $('auto').classList.toggle('on', auto); $('auto').textContent = 'Tự quét: ' + (auto ? 'Bật' : 'Tắt'); holdSig = null; fails = 0; };
+$('auto').onclick = () => { auto = !auto; $('auto').classList.toggle('on', auto); $('auto').textContent = 'Tự quét: ' + (auto ? 'Bật' : 'Tắt'); coolTxt = ''; holdSig = null; fails = 0; };
 $('undo').onclick = () => { if (queue.length) { queue.pop(); persist(); scanned = Math.max(0, scanned - 1); ui(); lastText = ''; $('first').textContent = 'Đã hủy tem vừa quét'; $('txt').textContent = ''; $('meta').textContent = ''; } else $('first').textContent = 'Tem đó đã gửi lên sheet'; };
 
 // ===== 5) Gửi nền theo lô =====
