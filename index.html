@@ -11,12 +11,6 @@
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;background:#000;color:#fff;font-family:'Be Vietnam Pro',system-ui,sans-serif;overflow:hidden}
   #top{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;flex-wrap:wrap;gap:8px;padding:10px;padding-top:calc(10px + env(safe-area-inset-top));background:rgba(20,33,61,.94);align-items:center}
-  #pick{position:relative;flex:1 1 42%;min-width:0}
-  #giao,#don{width:100%;font:inherit;font-size:16px;padding:10px;border-radius:10px;border:0;background:#fff;color:var(--ink)}
-  #don{flex:1 1 42%;min-width:0}
-  #sug{position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:42vh;overflow:auto;background:#fff;color:var(--ink);border-radius:10px;display:none;box-shadow:0 8px 24px rgba(0,0,0,.4)}
-  #sug .d{display:block;font-weight:400;font-size:13px;color:#4a5568;margin-top:2px}
-  #sug button{display:block;width:100%;text-align:left;background:none;color:var(--ink);border-radius:0;padding:12px;font-weight:600;border-bottom:1px solid #e3e7ef}
   #reload{background:#fff;color:var(--ink);padding:5px 12px;font-size:16px;border-radius:20px}
   [hidden]{display:none!important}
   .field{flex:1 1 28%;min-width:0;background:#fff;color:var(--ink);text-align:left;padding:6px 12px;border-radius:10px;font-weight:400;display:block}
@@ -50,7 +44,6 @@
   #row{display:flex;gap:10px}
   button{font:inherit;font-weight:800;border:0;border-radius:14px;padding:14px;cursor:pointer}
   #shot{flex:1;background:var(--amber);color:var(--ink);font-size:20px;padding:18px}
-  #auto{background:#fff;color:var(--ink)}#auto.on{background:var(--ok);color:#fff}
   #undo{background:rgba(255,255,255,.18);color:#fff}
   button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #fff;outline-offset:2px}
 </style>
@@ -68,7 +61,7 @@
 <div id="plus" aria-hidden="true">+1</div>
 <div id="bottom">
   <div><div id="first">Đang khởi động…</div><div id="txt"></div><div id="meta"></div></div>
-  <div id="row"><button id="auto" class="on">Tự quét: Bật</button><button id="shot">QUÉT</button><button id="undo">Hủy</button></div>
+  <div id="row"><button id="shot">QUÉT</button><button id="undo">Hủy</button></div>
 </div>
 <div id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sTitle">
   <div id="sHead"><button id="sBack" aria-label="Quay lại chọn đơn hàng">←</button><div id="sTitle">Chọn đơn hàng</div><button id="sClose" aria-label="Đóng">✕</button></div>
@@ -83,17 +76,13 @@
 // ===== CẤU HÌNH =====
 const API_URL = 'https://script.google.com/macros/s/AKfycbwcNVPnndyOlxEKOwqtfmtyoRgpXWfGI5ldTm2QC26BeFM5bBZOiOUwLcYqGq_zG0EU/exec';
 const KEY = '12345678';   // phải giống KEY trong Code.gs
-const MODE = 'hybrid';             // 'hybrid' | 'local' | 'server' (server = chỉ quét tay)
+const MODE = 'hybrid';             // 'hybrid' | 'local' | 'server' (server = chỉ dùng OCR Google)
 const LANG = 'vie';
 const MIN_CONF = 55, LOW_CONF = 75, FLUSH_MS = 4000, FLUSH_N = 40, MAX_W = 1600;
-// Tự quét: tem đứng yên ~0,15s là đọc ngay; chỉ đọc lại khi hình trong khung thay đổi
-const AUTO_COOLDOWN_MS = 5000;   // tự quét: tối đa 1 tem / 5 giây (đặt 0 để tắt giới hạn)
-const POLL_MS = 60, STABLE_DIFF = 5, STABLE_FRAMES = 2, CHANGE_DIFF = 18, DUP_MS = 1500;
 // =====================
 const $ = id => document.getElementById(id), sleep = ms => new Promise(r => setTimeout(r, ms));
-let worker = null, localOK = false, auto = true, low = 0, lastText = '', lastT = 0;
-let lastAutoT = 0, coolTxt = '';
-let jobs = [], queue = [], scanned = 0, sending = false, stream = null, audio = null;
+let worker = null, localOK = false, audio = null;
+let jobs = [], queue = [], scanned = 0, sending = false, stream = null;
 let orders = [], cur = { mua: '', don: '', giao: '' };
 try { queue = JSON.parse(localStorage.getItem('q') || '[]'); } catch (e) {}
 
@@ -185,7 +174,7 @@ function pick(v){
   else choose(sp.mua, sp.don, v);
 }
 function choose(m, d, g){ cur = { mua: m, don: d, giao: g }; $('sheet').hidden = true; updateFields(); saveCur(); $('first').textContent = 'Đưa tem vào khung'; }
-function saveCur(){ try { localStorage.setItem('cur', JSON.stringify(cur)); } catch (e) {} lastText = ''; holdSig = null; }
+function saveCur(){ try { localStorage.setItem('cur', JSON.stringify(cur)); } catch (e) {} }
 $('fMua').onclick = () => openSheet(1);
 $('fOrder').onclick = () => openSheet(2);
 $('fGiao').onclick = () => openSheet(3);
@@ -216,7 +205,6 @@ async function startOcr(){
       localOK = true;
     } catch (e) { showErr('Không nạp được bộ đọc trên máy, dùng OCR Google (chậm hơn).'); }
   }
-  if (!localOK) { auto = false; $('auto').style.display = 'none'; }
   $('first').textContent = ready_() ? 'Đưa tem vào khung' : 'Chọn mùa SX, đơn hàng, giao hàng';
 }
 const CROP = { x: .05, y: .26, w: .9, h: .34 };   // khớp khung vàng
@@ -230,19 +218,7 @@ function grab(src){
   x.drawImage(v, c0.x, c0.y, c0.w, c0.h, 0, 0, c.width, c.height);
   return c;
 }
-// Ảnh thu nhỏ 128x64 để biết tem đã đứng yên chưa và hình có đổi không (rất nhẹ, không cần OCR)
-const pc = document.createElement('canvas'); pc.width = 128; pc.height = 64;
-const px = pc.getContext('2d', { willReadFrequently: true });
-function probe(){
-  const v = $('cam'), W = v.videoWidth, H = v.videoHeight; if (!W) return null;
-  px.drawImage(v, W * CROP.x, H * CROP.y, W * CROP.w, H * CROP.h, 0, 0, 128, 64);
-  const d = px.getImageData(0, 0, 128, 64).data, s = new Uint8Array(8192);
-  for (let i = 0, j = 0; j < 8192; i += 4, j++) s[j] = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
-  return s;
-}
-const sigDiff = (a, b) => { let t = 0, n = 0; for (let i = 0; i < a.length; i += 3, n++) t += Math.abs(a[i] - b[i]); return t / n; };
 
-// Đọc cả tem (nhanh). Dòng đầu sẽ được đọc lại kỹ chỉ khi tem đã được chấp nhận.
 // Dựng dòng theo TỌA ĐỘ từng từ (cùng hàng ngang = cùng dòng), không dùng cách chia dòng tự động của OCR
 function linesFromWords(data){
   let words = data.words;
@@ -270,6 +246,7 @@ async function readLocal(cv){
               confidence: f.reduce((t, w) => t + (w.confidence || 0), 0) / f.length };
   return { text: tidy(text), conf: Math.round(data.confidence), L: L };
 }
+// Đọc lại kỹ dòng đầu tiên của tem
 async function refineFirst(cv, res){
   const L = res.L; if (!L || !L.bbox) return;
   const lines = res.text.split('\n');
@@ -287,7 +264,7 @@ async function refineFirst(cv, res){
 }
 const serverOcr = cv => api('ocr', { image: cv.toDataURL('image/jpeg', .85).split(',')[1] }).then(j => tidy(j.text));
 
-// ===== 4) Quét =====
+// ===== 4) Quét tay (bấm QUÉT hoặc chạm vào camera) =====
 function tap(){
   if (!$('sheet').hidden) return;
   if (!ready_()) { $('first').textContent = 'Chọn mùa SX, đơn hàng, giao hàng trước'; return; }
@@ -300,28 +277,21 @@ $('cam').onclick = $('shot').onclick = tap;
 $('file').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f || !ready_()) return;
   const g = cur.giao, d = cur.don, im = new Image(); im.onload = () => { jobs.push({ cv: grab(im), g: g, d: d }); ui(); }; im.src = URL.createObjectURL(f); };
 
-// Trả về true nếu đã ghi nhận tem
-async function scan(manual, job){
+async function scan(job){
   const t0 = performance.now(), cv = job.cv;
   try {
     let text = '', conf = 0, via = 'máy', res = null;
     if (localOK && MODE !== 'server') { res = await readLocal(cv); text = res.text; conf = res.conf; }
     let first = text.split('\n')[0] || '';
     let good = first.length >= 3 && conf >= MIN_CONF;
-    if (MODE !== 'local' && conf < LOW_CONF && (manual || !localOK || (text.length >= 3 && ++low >= 2))) {
-      $('first').textContent = 'Đang đọc chính xác…'; low = 0;
+    if (MODE !== 'local' && conf < LOW_CONF) {
+      $('first').textContent = 'Đang đọc chính xác…';
       try { text = await serverOcr(cv); conf = 100; via = 'Google'; res = null; } catch (e) { showErr('OCR Google lỗi: ' + e.message); }
       first = text.split('\n')[0] || ''; good = first.length >= 3;
     }
     if (good && res) { await refineFirst(cv, res); text = res.text; first = text.split('\n')[0] || first; }
-    if (manual ? !text : !good) {
-      if (manual) { flash('bad'); beep(false); $('first').textContent = 'Không đọc được, quét lại'; }
-      return false;
-    }
-    const now = Date.now();
-    if (!manual && text === lastText && now - lastT < DUP_MS) return false;   // chống đọc lặp do rung tay
-    lastText = text; lastT = now; low = 0; if (!manual) lastAutoT = now;
-    const item = { t: now, giao: job.g, don: job.d, text: text };
+    if (!text) { flash('bad'); beep(false); $('first').textContent = 'Không đọc được, quét lại'; return false; }
+    const item = { t: Date.now(), giao: job.g, don: job.d, text: text };
     if (conf < LOW_CONF) item.image = cv.toDataURL('image/jpeg', .6).split(',')[1];
     queue.push(item); persist(); scanned++; ui(); flash('ok'); beep(true); plus();
     $('first').textContent = first; $('txt').textContent = text.split('\n').slice(1).join('\n');
@@ -331,36 +301,14 @@ async function scan(manual, job){
   } catch (e) { $('first').textContent = 'Lỗi đọc, quét lại'; showErr(String(e.message || e)); return false; }
 }
 
-// Vòng lặp tự quét: tem đứng yên -> đọc 1 lần -> chờ hình đổi (rút tem / đổi tem) mới đọc tiếp
-function coolLabel(wait){
-  const t = wait > 0 ? 'Tự quét · ' + Math.ceil(wait / 1000) + 's' : 'Tự quét: Bật';
-  if (t !== coolTxt) { coolTxt = t; $('auto').textContent = t; }
-}
-let prevSig = null, holdSig = null, stableN = 0, fails = 0;
+// Xử lý lần lượt các ảnh đã chụp
 async function loop(){
   while (true) {
-    if (jobs.length) { await scan(true, jobs.shift()); ui(); }
-    else if (auto && stream && localOK && ready_() && $('sheet').hidden) {
-      const s = probe();
-      if (s) {
-        stableN = (prevSig && sigDiff(s, prevSig) < STABLE_DIFF) ? stableN + 1 : 0; prevSig = s;
-        if (holdSig && sigDiff(s, holdSig) > CHANGE_DIFF) { holdSig = null; fails = 0; }
-        const wait = AUTO_COOLDOWN_MS - (Date.now() - lastAutoT);
-        coolLabel(wait);
-        if (stableN >= STABLE_FRAMES && !holdSig && wait <= 0) {
-          const cv = grab();
-          if (cv) {
-            const ok = await scan(false, { cv: cv, g: cur.giao, d: cur.don });
-            if (ok || ++fails >= 2) { holdSig = s; fails = 0; }
-          }
-        }
-      }
-    }
-    await sleep(POLL_MS);
+    if (jobs.length) { await scan(jobs.shift()); ui(); }
+    else await sleep(60);
   }
 }
-$('auto').onclick = () => { auto = !auto; $('auto').classList.toggle('on', auto); $('auto').textContent = 'Tự quét: ' + (auto ? 'Bật' : 'Tắt'); coolTxt = ''; holdSig = null; fails = 0; };
-$('undo').onclick = () => { if (queue.length) { queue.pop(); persist(); scanned = Math.max(0, scanned - 1); ui(); lastText = ''; $('first').textContent = 'Đã hủy tem vừa quét'; $('txt').textContent = ''; $('meta').textContent = ''; } else $('first').textContent = 'Tem đó đã gửi lên sheet'; };
+$('undo').onclick = () => { if (queue.length) { queue.pop(); persist(); scanned = Math.max(0, scanned - 1); ui(); $('first').textContent = 'Đã hủy tem vừa quét'; $('txt').textContent = ''; $('meta').textContent = ''; } else $('first').textContent = 'Tem đó đã gửi lên sheet'; };
 
 // ===== 5) Gửi nền theo lô =====
 function flush(){
